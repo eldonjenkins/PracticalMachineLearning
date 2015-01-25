@@ -1,0 +1,97 @@
+# Practical Machine Learning - Course Project
+
+In this project we intend to see if we can determine the activity performed by a subject based on sensor data. We are attempting to predict which of 5 activities the subject is performing.
+
+The problem statement for the assignment: 
+In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+The data and dataset explanation is courtesy of: http://groupware.les.inf.puc-rio.br/har
+
+First we need to load libraries. 
+```{r}
+library(caret)
+```
+
+Now we load the training and test data and set our seed for reproducibility. This assumes the files are in your current working directory. 
+```{r}
+#setwd("/Users/eldon/ownCloud/School/Practical Machine Learning")
+pmltrain <- read.csv("pml-training.csv")
+pmltest <- read.csv("pml-testing.csv")
+
+set.seed(3343)
+```
+
+For good model creation and prediction we need a tidy dataset. This dataset contains lots of undeeded variables and lots of garbage so we need to do some cleanup before we start building our model.
+
+First there are lots of variables in the dataset that have no or near zero variance. We can quickly identify and remove them.
+
+```{r}
+zerovarvars <- nearZeroVar(pmltrain)
+newtrain <- pmltrain[,-zerovarvars]
+```
+
+Looking at the data and descriptions available on the previously mentioned website there are some variables we don't need. X and num_window appear to be simple record counts so we will drop these. Username, while might be interesting for a different question, is irrelevant for our analysis. Drop timestamps, we aren't looking at time based predictions. 
+
+```{r}
+newtrain <- newtrain[,-c(1:6)]
+```
+
+Looks like there are a lot of missing values:
+```{r}
+apply(newtrain, 2, function(x) length(which(!is.na(x))))
+```
+
+It looks like some correlations where many observations only have 406 out of 19622 in the training set. Let's drop everything that doesn't have complete observations. 
+```{r}
+fullobs <- apply(newtrain, 2, function(x) length(which(!is.na(x)))) == 19622
+newtrain <- newtrain[,fullobs]
+```
+
+Now we are ready to build some training and test sets for cross validation. 
+
+```{r}
+trainingsetindex <- createDataPartition(y=newtrain$classe, p=0.8, list=FALSE)
+trainingset <- newtrain[trainingsetindex,]
+testset <- newtrain[-trainingsetindex,]
+
+testclasse <- testset[,"classe"]
+testset <- subset(testset, select=-c(classe))
+```
+
+Now we will build a model to predict classe using boosted forest. 
+```{r}
+gbm_modelfit <- train(classe ~ ., method="gbm", data=trainingset, verbose=FALSE)
+```
+
+Now that we have our model created let's create some predictions to test model fit and do some cross validation. 
+
+```{r}
+# create predictions on the training test set
+testpreds <- predict(gbm_modelfit, testset)
+
+# how well does our model fit
+table(testpreds, testclasse)
+
+#not too bad!, what is the rate?
+confusionMatrix(testpreds, testclasse)
+```
+
+This model is getting 96.4% accuracy which should be good enough for the intended goal. With an expected out of sample error rate of 3.6% we will apply this model to the final prediction. 
+
+```{r}
+answers <- predict(gbm_modelfit, pmltest)
+
+#write out the files
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(answers)
+```
+
+Upon submission this model correctly answered 20 out of 20 test scenarios.
+
